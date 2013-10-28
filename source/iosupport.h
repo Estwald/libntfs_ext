@@ -56,20 +56,6 @@ typedef struct {
 	
 extern const devoptab_t *devoptab_list[];
 
-typedef struct {
-	void *(*sbrk_r) (struct _reent *ptr, ptrdiff_t incr);
-	int (*lock_init) (int *lock,int recursive);
-	int (*lock_close) (int *lock);
-	int (*lock_release) (int *lock);
-	int (*lock_acquire) (int *lock);
-	void (*malloc_lock) (struct _reent *ptr);
-	void (*malloc_unlock) (struct _reent *ptr);
-	void (*exit) ( int rc );
-	int (*gettod_r)(struct _reent *ptr, struct timeval *tp, struct timezone *tz);
-} __syscalls_t;
-
-extern __syscalls_t __syscalls;
-
 int AddDevice( const devoptab_t* device);
 int FindDevice(const char* name);
 int RemoveDevice(const char* name);

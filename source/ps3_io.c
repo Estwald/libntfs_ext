@@ -37,6 +37,8 @@ struct group	*getgrgid (gid_t x){ return 0; }
 uid_t getuid(void) { return 0; }
 gid_t getgid () { return -1; }
 
+s32 lv2error(s32 error);
+
 const devoptab_t *devoptab_list[33]={
     NULL, 
     NULL,
@@ -436,7 +438,6 @@ bool PS3_NTFS_WriteSectors8(sec_t sector, sec_t numSectors,const void* buffer)
     return PS3_NTFS_WriteSectors(7, sector, numSectors, buffer);
 }
 
-
 #define DEVICE_TYPE_NTFS1 (('U'<<24)|('S'<<16)|('B'<<8)|'0')
 #define DEVICE_TYPE_NTFS2 (('U'<<24)|('S'<<16)|('B'<<8)|'1')
 #define DEVICE_TYPE_NTFS3 (('U'<<24)|('S'<<16)|('B'<<8)|'2')
@@ -646,9 +647,9 @@ int ps3ntfs_open(const char *path, int flags, int mode)
 
         int ret = sysLv2FsOpen(path, flag,&fd,mode,NULL,0);
 
-        if(ret < 0) {my_files[m] = 0; reent1._errno = ret; return ret;}
+        if(ret < 0) {my_files[m] = 0; reent1._errno = lv2error(ret); return -lv2error(ret);}
 
-        if(flags&O_CREAT)
+        if(flags & O_CREAT)
             sysLv2FsChmod(path,  FS_S_IFMT | mode);
 
         file_state[m].flags = 0x1000000 | (flag); // system device
@@ -681,7 +682,8 @@ int ps3ntfs_close(int fd)
 
     if(fs->flags & 0x1000000) { // is system device
         r = sysLv2FsClose(fs->pos);
-        reent1._errno = r;
+        reent1._errno = lv2error(r);
+        if(r < 0) r = -1;
     } else 
         r = devoptab_list[get_dev(fd)]->close_r(&reent1, fd);
 
@@ -707,7 +709,7 @@ int ps3ntfs_write(int fd, const char *ptr, size_t len)
     if(fs->flags & 0x1000000) { // is system device
         u64 by;
         r = sysLv2FsWrite(fs->pos, (const void*) ptr, len, &by);
-        if(r>=0) r = (int) by; else reent1._errno = r;
+        if(r>=0) r = (int) by; else {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
 
@@ -728,7 +730,7 @@ int ps3ntfs_read(int fd, char *ptr, size_t len)
     if(fs->flags & 0x1000000) { // is system device
         u64 by;
         r = sysLv2FsRead(fs->pos, (void*) ptr, len, &by);
-        if(r>=0) r = (int) by; else reent1._errno = r;
+        if(r>=0) r = (int) by; else {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
 
@@ -750,7 +752,7 @@ off_t  ps3ntfs_seek(int fd, off_t pos, int dir)
         u64 by;
         
         r = sysLv2FsLSeek64(fs->pos, (s64) pos, dir, &by);
-        if(r>=0) r = (int) by; else reent1._errno = r;
+        if(r>=0) r = (int) by; else {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
 
@@ -772,7 +774,7 @@ s64  ps3ntfs_seek64(int fd, s64 pos, int dir)
         u64 by;
         
         r = sysLv2FsLSeek64(fs->pos, (s64) pos, dir, &by);
-        if(r>=0) r = (int) by; else reent1._errno = r;
+        if(r>=0) r = (s64) by; else {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
 
@@ -808,7 +810,7 @@ int ps3ntfs_fstat(int fd, struct stat *st)
 
 	    r = sysLv2FsFStat(fs->pos,&stat);
 	    if(!r && st) convertLv2Stat(st,&stat);
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
     
@@ -827,7 +829,7 @@ int ps3ntfs_stat(const char *file, struct stat *st)
 
 	    r = sysLv2FsStat(file,&stat);
 	    if(!r && st) convertLv2Stat(st,&stat);
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
 
@@ -847,7 +849,7 @@ int ps3ntfs_link(const char *existing, const char  *newLink)
         int r;
 
 	    r = sysLv2FsLink(existing, newLink);
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
     
@@ -874,7 +876,7 @@ int ps3ntfs_unlink(const char *name)
          
         if (S_ISDIR(stat.st_mode)) r = sysLv2FsRmdir(name);
 	    r = sysLv2FsUnlink(name);
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
     
@@ -914,7 +916,7 @@ int ps3ntfs_rename(const char *oldName, const char *newName)
         int r;
 
 	    r = sysLv2FsRename(oldName, newName);
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
     
@@ -934,7 +936,7 @@ int ps3ntfs_mkdir(const char *path, int mode)
         int r;
 
 	    r = sysLv2FsMkdir(path, UMASK(mode));
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
     
@@ -981,7 +983,8 @@ DIR_ITER*  ps3ntfs_diropen(const char *path)
 
         }
 
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r);}
+
         return NULL;
     }
 
@@ -1021,6 +1024,7 @@ int ps3ntfs_dirreset(DIR_ITER *dirState)
     reent1._errno = 0;
 
     if(dirState->device & 0x1000000) {
+        reent1._errno = ENOSYS;
         return -1;
     } 
 
@@ -1065,6 +1069,9 @@ int ps3ntfs_dirnext(DIR_ITER *dirState, char *filename, struct stat *filestat)
                 }
             }    
         }
+
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
+
         return r;
     }
 
@@ -1084,7 +1091,8 @@ int ps3ntfs_dirclose(DIR_ITER *dirState)
         struct dopendir * dopen = dirState->dirStruct;
 
         r = sysLv2FsCloseDir(dopen->fd);
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
+
     } else 
         r = devoptab_list[dirState->device]->dirclose_r(&reent1, dirState);
 
@@ -1102,6 +1110,7 @@ int ps3ntfs_statvfs(const char *path, struct statvfs *buf)
     if(strncmp(path, "ntfs", 4) && strncmp(path, "/ntfs", 5) && 
         strncmp(path, "ext", 3) && strncmp(path, "/ext", 4)) { // file system
        
+        reent1._errno = ENOSYS;
         return -1;
     }
 
@@ -1124,7 +1133,7 @@ int ps3ntfs_ftruncate(int fd, off_t len)
     if(fs->flags & 0x1000000) { // is system device
         
 	    r= sysLv2FsFtruncate(fs->pos, (u64) len);
-        reent1._errno = r;
+        if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
 
@@ -1145,7 +1154,7 @@ int ps3ntfs_fsync(int fd)
     if(fs->flags & 0x1000000) { // is system device
 
 	    r = sysLv2FsFsync(fs->pos);
-	    reent1._errno = r;
+	    if(r < 0) {reent1._errno = lv2error(r); r = -lv2error(r);}
         return r;
     }
 
@@ -1158,4 +1167,492 @@ int ps3ntfs_errno(void)
     return reent1._errno;
 }
 
+// STANDART I/O 
+
+#ifdef PS3_STDIO
+
+#include <sys/reent.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/times.h>
+#include <sys/stat.h>
+#include <sys/dirent.h>
+#include <sys/resource.h>
+#include <utime.h>
+
+struct __syscalls_t {
+	caddr_t (*sbrk_r)(struct _reent *r,ptrdiff_t incr);
+	int (*close_r)(struct _reent *r,int fd);
+	int (*open_r)(struct _reent *r,const char *file,int flags,int mode);
+	_ssize_t (*read_r)(struct _reent *r,int fd,void *ptr,size_t len);
+	_ssize_t (*write_r)(struct _reent *r,int fd,const void *ptr,size_t len);
+	_off_t (*lseek_r)(struct _reent *r,int fd,_off_t pos,int dir);
+	_off64_t (*lseek64_r)(struct _reent *r,int fd,_off64_t pos,int dir);
+	int (*fstat_r)(struct _reent *r,int fd,struct stat *st);
+	int (*fstat64_r)(struct _reent *r,int fd,struct stat *st);
+	int (*stat_r)(struct _reent *r,const char *path,struct stat *st);
+	int (*stat64_r)(struct _reent *r,const char *path,struct stat *st);
+	int (*ftruncate_r)(struct _reent *r,int fd,off_t len);
+	int (*truncate_r)(struct _reent *r,const char *path,off_t len);
+	int (*fsync_r)(struct _reent *r,int fd);
+	int (*link_r)(struct _reent *r,const char *old,const char *new);
+	int (*unlink_r)(struct _reent *r,const char *name);
+	int (*chmod_r)(struct _reent *r,const char *path,mode_t mode);
+	int (*rename_r)(struct _reent *r,const char *old,const char *new);
+	int (*utime_r)(struct _reent *r,const char *path,const struct utimbuf *times);
+
+	mode_t (*umask_r)(struct _reent *r,mode_t cmask);
+
+	int (*mkdir_r)(struct _reent *r,const char *path,mode_t mode);
+	int (*rmdir_r)(struct _reent *r,const char *dirname);
+	int (*chdir_r)(struct _reent *r,const char *dirname);
+	char* (*getcwd_r)(struct _reent *r,char *buf,size_t size);
+
+	int (*closedir_r)(struct _reent *r,DIR *dirp);
+	DIR* (*opendir_r)(struct _reent *r,const char *dirname);
+	struct dirent* (*readdir_r)(struct _reent *r,DIR *dirp);
+	int (*readdir_r_r)(struct _reent *r,DIR *dirp,struct dirent *entry,struct dirent **result);
+	void (*rewinddir_r)(struct _reent *r,DIR *dirp);
+	void (*seekdir_r)(struct _reent *r,DIR *dirp,long int loc);
+	long int (*telldir_r)(struct _reent *r,DIR *dirp);
+
+	int (*getpid_r)(struct _reent *r);
+	int (*isatty_r)(struct _reent *r,int fd);
+	int (*execve_r)(struct _reent *r,char *name,char **argv,char **env);
+	int (*gettod_r)(struct _reent *r,struct timeval *ptimeval,void *ptimezone);
+	int (*settod_r)(struct _reent *r,const struct timeval *ptimeval,const struct timezone *ptimezone);
+	int (*usleep_r)(struct _reent *r,useconds_t usec);
+	int (*getrusage_r)(struct _reent *r,int who,struct rusage *r_usage);
+	unsigned int (*sleep_r)(struct _reent *r,unsigned int sec);
+	clock_t (*times_r)(struct _reent *r,struct tms *buf);
+
+	int (*sys_lwmutex_create_r)(struct _reent *r,sys_lwmutex_t *lwmutex,const sys_lwmutex_attr_t *attr);
+	int (*sys_lwmutex_destroy_r)(struct _reent *r,sys_lwmutex_t *lwmutex);
+	int (*sys_lwmutex_lock_r)(struct _reent *r,sys_lwmutex_t *lwmutex,unsigned long long timeout);
+	int (*sys_lwmutex_trylock_r)(struct _reent *r,sys_lwmutex_t *lwmutex);
+	int (*sys_lwmutex_unlock_r)(struct _reent *r,sys_lwmutex_t *lwmutex);
+
+	void (*exit)(int rc);
+};
+
+extern struct __syscalls_t __syscalls;
+static struct __syscalls_t sv_syscalls;
+
+#define MAX_FDs 32
+#define FDs_RANGE 0x888
+
+static int FDs[MAX_FDs];
+
+static int s_ps3ntfs_open(struct _reent *r, const char *path, int flags, int mode)
+{
+    int ret;
+    int n;
+
+    for(n = 0; n < MAX_FDs; n++) {
+        if(FDs[n] == -1) break;
+    }
+
+    if(n == MAX_FDs) {r->_errno = EMFILE; return -EMFILE;}
+    
+    ret = ps3ntfs_open(path, flags, mode);
+
+    if(ret < 0) r->_errno= reent1._errno; else r->_errno = 0;
+    
+    if(ret>=0) {
+        
+        FDs[n] = ret;
+        ret = FDs_RANGE + n;
+    }
+
+    return ret;
+}
+
+static int s_ps3ntfs_close(struct _reent *r,int fd)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) 
+        {ret = FDs[fd - FDs_RANGE]; FDs[fd - FDs_RANGE] = -1; fd = ret;}
+    else return sv_syscalls.close_r(r, fd); //return -EIO;
+
+    ret = ps3ntfs_close(fd);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static _ssize_t s_ps3ntfs_read(struct _reent *r,int fd,void *ptr,size_t len)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.read_r(r, fd, ptr, len); //return -EIO;
+    
+    ret = ps3ntfs_read(fd, ptr, len);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+static _ssize_t s_ps3ntfs_write(struct _reent *r,int fd,const void *ptr,size_t len)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.write_r(r, fd, ptr, len); //return -EIO;
+
+    ret = ps3ntfs_write(fd, ptr, len);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static _off_t s_ps3ntfs_lseek(struct _reent *r,int fd, off_t pos,int dir)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.lseek_r(r, fd, pos, dir); //return -EIO;
+
+    ret = ps3ntfs_seek(fd, pos, dir);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static _off64_t s_ps3ntfs_lseek64(struct _reent *r,int fd,_off64_t pos,int dir)
+{
+    _off64_t ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.lseek64_r(r, fd, pos, dir); //return -EIO;
+
+    ret = ps3ntfs_seek64(fd, pos, dir);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+
+static int s_ps3ntfs_fstat(struct _reent *r,int fd,struct stat *st)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.fstat_r(r, fd, st); //return -EIO;
+    
+    ret = ps3ntfs_fstat(fd, st);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_fstat64(struct _reent *r,int fd,struct stat *st)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.fstat64_r(r, fd, st); //return -EIO;
+    
+    ret = ps3ntfs_fstat(fd, st);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_stat(struct _reent *r,const char *path,struct stat *st)
+{
+    int ret;
+    
+    ret = ps3ntfs_stat(path, st);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_stat64(struct _reent *r,const char *path,struct stat *st)
+{
+    int ret;
+
+    
+    ret = ps3ntfs_stat(path, st);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_ftruncate(struct _reent *r,int fd,off_t len)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.ftruncate_r(r, fd, len); //return -EIO;
+    
+    ret = ps3ntfs_ftruncate(fd, len);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_truncate(struct _reent *r, const char *path,off_t len)
+{
+    int ret;
+    int fd;
+    
+    fd = ret = ps3ntfs_open(path, O_RDONLY, 0);
+
+    if(ret < 0) {
+        r->_errno= reent1._errno;
+
+        return ret;
+    }
+
+    ret = ps3ntfs_ftruncate(fd, len);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    ps3ntfs_close(fd);
+
+    return ret;
+}
+
+static int s_ps3ntfs_fsync(struct _reent *r, int fd)
+{
+    int ret;
+
+    if(fd >= FDs_RANGE && fd < FDs_RANGE + MAX_FDs) fd = FDs[fd - FDs_RANGE];
+    else return sv_syscalls.fsync_r(r, fd); //return -EIO;
+
+    ret = ps3ntfs_fsync(fd);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_link(struct _reent *r,const char *old,const char *new)
+{
+    int ret;
+
+    
+    ret = ps3ntfs_link(old, new);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_unlink(struct _reent *r,const char *name)
+{
+    int ret = -1;
+    struct stat st;
+
+    if(ps3ntfs_stat(name, &st) < 0) {r->_errno= reent1._errno; return -1;}
+
+    if(!S_ISDIR(st.st_mode))
+        {ret = ps3ntfs_unlink(name);if(ret < 0) r->_errno= reent1._errno;}
+    else r->_errno= ENOTDIR;
+
+    return ret;
+}
+
+static int s_ps3ntfs_rename(struct _reent *r,const char *old,const char *new)
+{
+    int ret;
+
+    
+    ret = ps3ntfs_rename(old, new);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_mkdir(struct _reent *r,const char *path,mode_t mode)
+{
+    int ret;
+
+    
+    ret = ps3ntfs_mkdir(path, mode);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+    return ret;
+}
+
+static int s_ps3ntfs_rmdir(struct _reent *r,const char *dirname)
+{
+    int ret = -1;
+    struct stat st;
+
+    if(ps3ntfs_stat(dirname, &st) < 0) {r->_errno= reent1._errno; return -1;}
+
+    if(S_ISDIR(st.st_mode))
+        {ret = ps3ntfs_unlink(dirname);if(ret < 0) r->_errno= reent1._errno;}
+    else r->_errno= ENOTDIR;
+
+    return ret;
+}
+
+static int s_ps3ntfs_closedir_r(struct _reent *r,DIR *dirp)
+{
+
+    s32 ret = ps3ntfs_dirclose((DIR_ITER*) (s64) dirp->dd_fd);
+
+	free(dirp->dd_buf);
+	free(dirp);
+
+    if(ret < 0) r->_errno= reent1._errno;
+
+	return ret;
+}
+
+static DIR* s_ps3ntfs_opendir_r(struct _reent *r,const char *dirname)
+{
+
+    // directly from PSL1GHT v2
+
+    DIR *dirp = (DIR*)malloc(sizeof(DIR));
+	struct dirent *buffer = (struct dirent*)malloc(sizeof(struct dirent));
+
+	if(!dirp || !buffer) {
+		free(dirp);
+		free(buffer);
+		r->_errno = ENOMEM;
+		return NULL;
+	}
+
+	memset(dirp,0,sizeof(DIR));
+	memset(buffer,0,sizeof(struct dirent));
+
+	dirp->dd_buf = buffer;
+	dirp->dd_len = sizeof(struct dirent);
+
+    int ret = (int) (s64) ps3ntfs_diropen(dirname);
+	if(ret) {
+		dirp->dd_fd = (int)(s64) ret;
+		return dirp;
+	}
+
+	free(buffer);
+	free(dirp);
+	r->_errno= reent1._errno;
+
+	return NULL;
+}
+
+// from PSL1GHT v2
+
+static s32 readdir_i(DIR *dirp,struct dirent *entry,struct dirent **result)
+{
+	s32 ret;
+	struct stat st;
+
+	*result = NULL;
+    ret =ps3ntfs_dirnext((DIR_ITER *) (s64) dirp->dd_fd, entry->d_name, &st) ;
+	if(ret<0) return ret;
+
+    entry->d_namlen = strlen(entry->d_name);
+    entry->d_type = S_ISDIR(st.st_mode) ? DT_DIR : (S_ISREG(st.st_mode) ? DT_REG : (S_ISLNK(st.st_mode) ? DT_LNK : 0));
+    entry->d_ino = st.st_ino;
+    entry->d_reclen = sizeof(struct dirent);
+    entry->d_seekoff = dirp->dd_seek;
+
+    dirp->dd_seek++;
+
+    *result = entry;
+	
+
+	return ret;
+}
+
+struct dirent* s_ps3ntfs_readdir_r(struct _reent *r,DIR *dirp)
+{
+    s32 ret;
+	struct dirent *out = NULL;
+
+	ret = readdir_i(dirp,(struct dirent*)dirp->dd_buf,&out);
+	if(ret<0) {
+        r->_errno= reent1._errno;
+    }
+
+	return out; 
+}
+
+static int s_ps3ntfs_readdir_r_r(struct _reent *r,DIR *dirp,struct dirent *entry,struct dirent **result)
+{
+    s32 ret = readdir_i(dirp,entry,result);
+    if(ret < 0) r->_errno= reent1._errno;
+	return ret;
+}
+
+static int __sys_io_init = 0;
+
+void NTFS_deinit_system_io(void)
+{   
+    if(__sys_io_init)
+        __syscalls = sv_syscalls;
+
+    __sys_io_init = 0;
+}
+
+void NTFS_init_system_io(void) 
+{
+    int n;
+
+    if(__sys_io_init) return;
+
+    sv_syscalls = __syscalls;
+
+    atexit(NTFS_deinit_system_io);
+
+    for(n = 0; n < MAX_FDs; n++) FDs[n] = -1;
+
+    __syscalls.open_r = s_ps3ntfs_open;
+    __syscalls.close_r = s_ps3ntfs_close;
+    __syscalls.read_r = s_ps3ntfs_read;
+    __syscalls.write_r = s_ps3ntfs_write;
+    __syscalls.lseek_r = s_ps3ntfs_lseek;
+    __syscalls.lseek64_r = s_ps3ntfs_lseek64;
+    __syscalls.fstat_r = s_ps3ntfs_fstat;
+    __syscalls.fstat64_r = s_ps3ntfs_fstat64;
+    __syscalls.stat_r = s_ps3ntfs_stat;
+    __syscalls.stat64_r = s_ps3ntfs_stat64;
+
+    __syscalls.ftruncate_r = s_ps3ntfs_ftruncate;
+    __syscalls.truncate_r = s_ps3ntfs_truncate;
+    __syscalls.fsync_r = s_ps3ntfs_fsync;
+    __syscalls.link_r = s_ps3ntfs_link;
+    __syscalls.unlink_r = s_ps3ntfs_unlink;
+    __syscalls.rename_r = s_ps3ntfs_rename;
+    __syscalls.mkdir_r = s_ps3ntfs_mkdir;
+    __syscalls.rmdir_r = s_ps3ntfs_rmdir;
+    __syscalls.closedir_r = s_ps3ntfs_closedir_r;
+    __syscalls.opendir_r = s_ps3ntfs_opendir_r;
+    __syscalls.readdir_r = s_ps3ntfs_readdir_r;
+    __syscalls.readdir_r_r = s_ps3ntfs_readdir_r_r;
+
+    __sys_io_init = 1;
+
+}
+#else
+
+void NTFS_deinit_system_io(void)
+{
+}
+
+void NTFS_init_system_io(void)
+{
+}
+
+#endif
 #endif

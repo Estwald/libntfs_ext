@@ -7,9 +7,9 @@ https://github.com/Estwald/PSDK3v2 // psl1ght and environment for  Windows
 https://github.com/Estwald/libntfs_ext // this library
 
 
-See "ps3_example"
+See "ps3_example". See below for "Standard I/O C functions"
 
-Tris library now support NTFS partitions (Read/Write operations) and ext 2/3/4 (Read only operations)
+This library now support NTFS partitions (Read/Write operations) and ext 2/3/4 (Read only operations)
 
 The support for write operations is experimental (use as you own risk)
 
@@ -34,7 +34,6 @@ int ps3ntfs_stat(const char *file, struct stat *st);
 int ps3ntfs_link(const char *existing, const char  *newLink);
 int ps3ntfs_unlink(const char *name); // for files and folders
 
-;
 int ps3ntfs_rename(const char *oldName, const char *newName);
 int ps3ntfs_mkdir(const char *path, int mode);
 
@@ -95,6 +94,48 @@ bool PS3_NTFS_IsInserted(int fd); // fd -> (0 to 7), return true if usb00X (fd i
 bool PS3_NTFS_Shutdown(int fd);  // fd -> (0 to 7), cause the close of the usb00X device (sector read/write operations fails)
 
 
+/***********************************************************************************************************/
+/***********************************************************************************************************/
 
+Standard I/O C functions
+------------------------
+
+Now the library support some standard I/O function. By default PS3_STDIO is defined and ps3_io.c
+compiles this support defining libc syscalls function from the __syscalls struct
+
+NOTE: including sys/mutext.h and sys/syscalls.h, it cause an error because sys_mutex_attr is re-defined. For this
+reason i define struct __syscalls_t directly and maybe you needs to do soe changes if you are using a different newlib
+
+To initialize the standard function you must call at first function in the main(), NTFS_init_system_io();
+
+Deinit function (NTFS_deinit_system_io()) is called mean atexit function.
+
+Remember you that is possible to use PS3 system devices (as "/dev_usb000"), NTFS (as "/ntfs0:") a EXT2/3/4 (as "/ext0:")
+devices with this library.
+
+Standard functions supported:
+
+open_r -> for stdio.h fopen()...
+close_r -> for stdio.h fclose()...
+read_r -> for stdio.h fread()...
+write_r -> for stdio.h fwrite()...
+lseek_r -> for stdio.h fseek()...
+lseek64_r -> for using with large files (see ps3_example_stdio for this)
+fstat_r -> for stat.h fstat()
+stat_r -> for stat.h stat()
+
+ftruncate_r -> for unistd.h ftruncate()
+truncate_r -> for unistd.h truncate()
+fsync_r -> for stdio.h fflush()
+link_r -> for unistd.h link()
+unlink_r -> for unistd.h unlink()
+rename_r -> for stdio.h rename()
+mkdir_r -> for stat.h mkdir()
+rmdir_r -> for unistd.h rmdir()
+
+closedir_r -> for dirent.h closedir()
+opendir_r -> for dirent.h opendir()
+readdir_r -> for dirent.h readdir()
+readdir_r_r -> for dirent.h readdir_r()
 
 

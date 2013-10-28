@@ -38,7 +38,7 @@ DATA		:=	data
 LIBS		:=	
 
 MACHDEP		:= -DBIGENDIAN 
-CFLAGS		+= -O2 -Wall -mcpu=cell $(MACHDEP) -fno-strict-aliasing $(INCLUDES) -DPS3_GEKKO -DHAVE_CONFIG_H
+CFLAGS		+= -O2 -Wall -mcpu=cell $(MACHDEP) -fno-strict-aliasing $(INCLUDES) -DPS3_GEKKO -DHAVE_CONFIG_H -DPS3_STDIO
 LD			:=	ppu-ld
 
 ifneq ($(BUILD),$(notdir $(CURDIR)))
