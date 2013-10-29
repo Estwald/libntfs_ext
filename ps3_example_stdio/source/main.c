@@ -362,7 +362,7 @@ s32 main(s32 argc, const char* argv[])
                             
                             sprintf(path, "%s/0text", cur_device);
                             
-                            ps3ntfs_mkdir(path, 0777);
+                            mkdir(path, 0777);
 
                             sprintf(path, "%s/0text/test.txt", cur_device);
 
