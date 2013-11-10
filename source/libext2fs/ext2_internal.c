@@ -55,6 +55,7 @@ static const devoptab_t devops_ext2 =
     ext2_statvfs_r,
     ext2_ftruncate_r,
     ext2_fsync_r,
+    ext2_file_to_sectors,
     NULL /* Device data */
 };
 
@@ -184,17 +185,11 @@ int ext2InitVolume (ext2_vd *vd)
     // Initialise the volume lock
    // LWP_MutexInit(&vd->lock, false);
 
-    sys_mutex_attr_t attr;
+    static const sys_lwmutex_attr_t attr = {
+	SYS_LWMUTEX_ATTR_PROTOCOL,SYS_LWMUTEX_ATTR_RECURSIVE,""
+    };
 
-    memset(&attr, 0, sizeof(sys_mutex_attr_t));
-
-    attr.key            = 0x0 ;
-    attr.attr_protocol  = SYS_MUTEX_PROTOCOL_PRIO ;
-    attr.attr_pshared   = SYS_MUTEX_ATTR_PSHARED ;
-    attr.attr_recursive = SYS_MUTEX_ATTR_NOT_RECURSIVE ;
-    attr.attr_adaptive  = SYS_MUTEX_ATTR_NOT_ADAPTIVE ;
-
-    if(sysMutexCreate(&vd->lock, &attr)<0) ;//exit(0);
+    sysLwMutexCreate(&vd->lock, &attr);
 
     return 0;
 }
@@ -238,7 +233,7 @@ void ext2DeinitVolume (ext2_vd *vd)
 
     // Deinitialise the volume lock
     //LWP_MutexDestroy(vd->lock);
-    sysMutexDestroy(vd->lock);
+    sysLwMutexDestroy(&vd->lock);
 }
 
 static ext2_ino_t ext2PathToInode(ext2_vd *vd, const char * path)

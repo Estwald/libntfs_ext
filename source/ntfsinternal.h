@@ -42,7 +42,7 @@
 
 //#include <gccore.h>
 //#include <ogc/disc_io.h>
-#include <sys/mutex.h>
+#include <lv2/mutex.h>
 #include "ntfs.h"
 #include "iosupport.h"
 
@@ -122,7 +122,7 @@ typedef enum {
 typedef struct _ntfs_vd {
     struct ntfs_device *dev;                /* NTFS device handle */
     ntfs_volume *vol;                       /* NTFS volume handle */
-    sys_mutex_t lock;                           /* Volume lock mutex */
+    sys_lwmutex_t lock;                     /* Volume lock mutex */
     s64 id;                                 /* Filesystem id */
     u32 flags;                              /* Mount flags */
     char name[128];                         /* Volume name (cached) */
@@ -144,7 +144,7 @@ typedef struct _ntfs_vd {
 static inline void ntfsLock (ntfs_vd *vd)
 {
    // PS3_LOCK LWP_MutexLock(vd->lock);
-   sysMutexLock(vd->lock, 0);
+   sysLwMutexLock(&vd->lock, 0);
 
 }
 
@@ -152,7 +152,7 @@ static inline void ntfsLock (ntfs_vd *vd)
 static inline void ntfsUnlock (ntfs_vd *vd)
 {
     // PS3_LOCK LWP_MutexUnlock(vd->lock);
-    sysMutexUnlock(vd->lock);
+    sysLwMutexUnlock(&vd->lock);
 }
 
 /* Gekko device related routines */

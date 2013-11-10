@@ -21,7 +21,7 @@
 #ifndef EXT2_INTERNAL_H_
 #define EXT2_INTERNAL_H_
 
-#include <sys/mutex.h>
+#include <lv2/mutex.h>
 #include "../ext2.h"
 #include "../iosupport.h"
 
@@ -49,7 +49,7 @@ typedef struct _ext2_vd
 {
     io_channel io;                          /* EXT device handle */
     ext2_filsys fs;                         /* EXT volume handle */
-    sys_mutex_t lock;                           /* Volume lock mutex */
+    sys_lwmutex_t lock;                     /* Volume lock mutex */
     ext2_inode_t *cwd_ni;                   /* Current directory */
     struct _ext2_dir_state *firstOpenDir;   /* The start of a FILO linked list of currently opened directories */
     struct _ext2_file_state *firstOpenFile; /* The start of a FILO linked list of currently opened files */
@@ -72,14 +72,14 @@ typedef enum {
 static inline void ext2Lock (ext2_vd *vd)
 {
     //LWP_MutexLock(vd->lock);
-    sysMutexLock(vd->lock, 0);
+    sysLwMutexLock(&vd->lock, 0);
 }
 
 /* Unlock volume */
 static inline void ext2Unlock (ext2_vd *vd)
 {
     //LWP_MutexUnlock(vd->lock);
-    sysMutexUnlock(vd->lock);
+    sysLwMutexUnlock(&vd->lock);
 }
 
 const char *ext2RealPath (const char *path);

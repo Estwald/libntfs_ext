@@ -217,18 +217,12 @@ int ntfsInitVolume (ntfs_vd *vd)
 
     // Initialise the volume lock
     //PS3_LOCK LWP_MutexInit(&vd->lock, false);
-    
-    sys_mutex_attr_t attr;
 
-    memset(&attr, 0, sizeof(sys_mutex_attr_t));
+    static const sys_lwmutex_attr_t attr = {
+	SYS_LWMUTEX_ATTR_PROTOCOL,SYS_LWMUTEX_ATTR_RECURSIVE,""
+    };
 
-    attr.key            = 0x0 ;
-    attr.attr_protocol  = SYS_MUTEX_PROTOCOL_PRIO ;
-    attr.attr_pshared   = SYS_MUTEX_ATTR_PSHARED ;
-    attr.attr_recursive = SYS_MUTEX_ATTR_NOT_RECURSIVE ;
-    attr.attr_adaptive  = SYS_MUTEX_ATTR_NOT_ADAPTIVE ;
-
-    if(sysMutexCreate(&vd->lock, &attr)<0) ;//exit(0);
+    sysLwMutexCreate(&vd->lock, &attr);
 
     // Reset the volumes name cache
     vd->name[0] = '\0';
@@ -293,7 +287,7 @@ void ntfsDeinitVolume (ntfs_vd *vd)
     // Deinitialise the volume lock
     //PS3_LOCK LWP_MutexDestroy(vd->lock);
 
-    sysMutexDestroy(vd->lock);
+    sysLwMutexDestroy(&vd->lock);
 
     return;
 }
