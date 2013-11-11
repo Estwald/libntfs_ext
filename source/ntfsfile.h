@@ -43,7 +43,7 @@ typedef struct _ntfs_file_state {
     bool append;                            /* True if allowed to append to file */
     bool compressed;                        /* True if file data is compressed */
     bool encrypted;                         /* True if file data is encryted */
-    s64 pos;                                /* Current position within the file (in bytes) */
+    s64 pos;                              /* Current position within the file (in bytes) */
     u64 len;                                /* Total length of the file (in bytes) */
     struct _ntfs_file_state *prevOpenFile;  /* The previous entry in a double-linked FILO list of open files */
     struct _ntfs_file_state *nextOpenFile;  /* The next entry in a double-linked FILO list of open files */
@@ -62,6 +62,7 @@ extern s64 ntfs_seek64_r (struct _reent *r, int fd, s64 pos, int dir);
 extern int ntfs_fstat_r (struct _reent *r, int fd, struct stat *st);
 extern int ntfs_ftruncate_r (struct _reent *r, int fd, off_t len);
 extern int ntfs_fsync_r (struct _reent *r, int fd);
+extern int ntfs_file_to_sectors (struct _reent *r,const char *path,uint32_t *sec_out,uint32_t *size_out,int max,int phys); 
 
 #endif /* _NTFSFILE_H */
 

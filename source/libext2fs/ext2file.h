@@ -57,6 +57,7 @@ extern s64 ext2_seek64_r (struct _reent *r, int fd, s64 pos, int dir);
 extern int ext2_fstat_r (struct _reent *r, int fd, struct stat *st);
 extern int ext2_ftruncate_r (struct _reent *r, int fd, off_t len);
 extern int ext2_fsync_r (struct _reent *r, int fd);
+extern int ext2_file_to_sectors (struct _reent *r,const char *path,uint32_t *sec_out,uint32_t *size_out,int max,int phys); 
 
 #endif /* _EXT2FILE_H */
 

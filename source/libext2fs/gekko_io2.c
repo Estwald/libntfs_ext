@@ -307,6 +307,127 @@ static s64 device_gekko_io_readbytes(io_channel dev, s64 offset, s64 count, void
     return count;
 }
 
+// Estwald
+static s64 device_gekko_io_sectors(io_channel dev, s64 offset, s64 count, u32 *bsector, u32 *bnumsectors, u32 *current_block, u32 max_blocks)
+{
+    //ext2_log_trace("dev %p, offset %lli, count %lli\n", dev, offset, count);
+    // Get the device driver descriptor
+    gekko_fd *fd = DEV_FD(dev);
+    if (!fd) {
+        errno = EBADF;
+        return -1;
+    }
+
+    // Get the device interface
+    const DISC_INTERFACE* interface = fd->interface;
+    if (!interface) {
+        errno = ENODEV;
+        return -1;
+    }
+
+    if(offset < 0)
+    {
+        errno = EROFS;
+        return -1;
+    }
+
+    if(!count)
+        return 0;
+
+    sec_t sec_start = (sec_t) fd->startSector;
+    sec_t sec_count = 1;
+    u32 buffer_offset = (u32) (offset % fd->sectorSize);
+
+    // Determine the range of sectors required for this read
+    if (offset > 0) {
+        sec_start += (sec_t) floor((f64) offset / (f64) fd->sectorSize);
+    }
+    if (buffer_offset+count > fd->sectorSize) {
+        sec_count = (sec_t) ceil((f64) (buffer_offset+count) / (f64) fd->sectorSize);
+    }
+
+    // Don't read over the partitions limit
+    if(sec_start+sec_count > fd->startSector+fd->sectorCount)
+    {
+        //ext2_log_trace("Error: read requested up to sector %lli while partition goes up to %lli\n", (s64) (sec_start+sec_count), (s64) (fd->startSector+fd->sectorCount));
+        errno = EROFS;
+        return -1;
+    }
+
+    // If this read happens to be on the sector boundaries then do the read straight into the destination buffer
+
+    if((buffer_offset == 0) && (count % fd->sectorSize == 0))
+    {
+        // Read from the device
+        //ext2_log_trace("direct read from sector %d (%d sector(s) long)\n", sec_start, sec_count);
+        
+          if(current_block[0]==0) {  
+            if(current_block[0] >= max_blocks) return -1;
+            bsector[current_block[0]] = sec_start;
+            bnumsectors[current_block[0]] = sec_count;
+            current_block[0]++;
+            if(current_block[0] >= max_blocks) return -1;
+          } else {
+            int n;
+            for(n = 0; n < current_block[0]; n++) {
+                if(bsector[n] + bnumsectors[n] == sec_start) {
+                    bnumsectors[n]+= sec_count;
+                    break;  
+                }
+            }
+            if(n == current_block[0]) {
+                if(current_block[0] >= max_blocks) return -1;
+            bsector[current_block[0]] = sec_start;
+            bnumsectors[current_block[0]] = sec_count;
+            current_block[0]++;
+            if(current_block[0] >= max_blocks) return -1;
+            }
+          }
+           
+        
+        /*if (!device_gekko_io_readsectors(dev, sec_start, sec_count, buf))
+        {
+            ext2_log_trace("direct read failure @ sector %d (%d sector(s) long)\n", sec_start, sec_count);
+            errno = EIO;
+            return -1;
+        }*/
+    // Else read into a buffer and copy over only what was requested
+    }
+    else
+	{
+
+        // Read from the device
+        //ext2_log_trace("buffered read from sector %d (%d sector(s) long)\n", sec_start, sec_count);
+        //ext2_log_trace("count: %d  sec_count:%d  fd->sectorSize: %d )\n", (u32)count, (u32)sec_count,(u32)fd->sectorSize);
+        if(current_block[0]==0) {  
+            if(current_block[0] >= max_blocks) return -1;
+            bsector[current_block[0]] = sec_start;
+            bnumsectors[current_block[0]] = sec_count;
+            current_block[0]++;
+            if(current_block[0] >= max_blocks) return -1;
+          } else {
+            int n;
+            for(n = 0; n < current_block[0]; n++) {
+                if(bsector[n] + bnumsectors[n] == sec_start) {
+                    bnumsectors[n]+= sec_count;
+                    break;  
+                }
+            }
+            if(n == current_block[0]) {
+                if(current_block[0] >= max_blocks) return -1;
+            bsector[current_block[0]] = sec_start;
+            bnumsectors[current_block[0]] = sec_count;
+            current_block[0]++;
+            if(current_block[0] >= max_blocks) return -1;
+            }
+          }
+        
+    }
+
+    return count;
+}
+
+
 /**
  *
  */
@@ -444,6 +565,23 @@ static errcode_t device_gekko_io_read64(io_channel dev, unsigned long long block
 static errcode_t device_gekko_io_read(io_channel dev, unsigned long block, int count, void *buf)
 {
     return device_gekko_io_read64(dev, block, count, buf);
+}
+
+// Estwald
+errcode_t device_gekko_io_getsectors(io_channel dev, unsigned long long block, int count, u32 *bsector, u32 *bnumsectors, u32 *current_block, u32 max_blocks)
+{
+    gekko_fd *fd = DEV_FD(dev);
+    s64 size = (count < 0) ? -count : count * dev->block_size;
+	fd->io_stats.bytes_read += size;
+	ext2_loff_t location = ((ext2_loff_t) block * dev->block_size) + fd->offset;
+
+    s64 read = device_gekko_io_sectors(dev, location, size, bsector, bnumsectors, current_block, max_blocks);
+    if(read != size)
+        return EXT2_ET_SHORT_READ;
+    else if(read < 0)
+        return EXT2_ET_BLOCK_BITMAP_READ;
+
+    return EXT2_ET_OK;
 }
 
 /**

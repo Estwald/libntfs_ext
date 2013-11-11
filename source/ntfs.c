@@ -73,6 +73,7 @@ static const devoptab_t devops_ntfs = {
     ntfs_statvfs_r,
     ntfs_ftruncate_r,
     ntfs_fsync_r,
+    ntfs_file_to_sectors,
     NULL /* Device data */
 };
 

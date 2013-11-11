@@ -442,3 +442,114 @@ int ext2_fsync_r (struct _reent *r, int fd)
 
     return ret;
 }
+
+#include "../ntfsfile.h"
+
+int ext2_file_to_sectors (struct _reent *r,const char *path,uint32_t *sec_out,uint32_t *size_out,int max,int phys)
+{
+    ntfs_file_state fileStruct;
+   
+    ext2_file_state* file = STATE(&fileStruct);
+
+    // Get the volume descriptor for this path
+    file->vd = ext2GetVolume(path);
+    if (!file->vd) {
+        r->_errno = ENODEV;
+        return -1;
+    }
+
+    // Lock
+    ext2Lock(file->vd);
+
+    file->flags = 0;
+    file->read = true;
+    file->write = false;
+    file->append = false;
+
+    // Try and find the file and (if found) ensure that it is not a directory
+    file->ni = ext2OpenEntry(file->vd, path);
+
+    if (file->ni && LINUX_S_ISDIR(file->ni->ni.i_mode))
+    {
+        ext2CloseEntry(file->vd, file->ni);
+        ext2Unlock(file->vd);
+        r->_errno = EISDIR;
+        return -1;
+    }
+
+    // Sanity check, the file should be open by now
+    if (!file->ni) {
+        ext2Unlock(file->vd);
+        r->_errno = ENOENT;
+        return -1;
+    }
+
+    errcode_t err = ext2fs_file_open2(file->vd->fs, file->ni->ino, &file->ni->ni,
+                                       0, &file->fd);
+    if(err != 0)
+    {
+        ext2CloseEntry(file->vd, file->ni);
+        ext2Unlock(file->vd);
+        r->_errno = ENOENT;
+        return -1;
+    }
+
+    //ext2_log_trace("file->len %lld\n", EXT2_I_SIZE(&file->ni->ni));
+
+    // Update file times
+    ext2UpdateTimes(file->vd, file->ni, EXT2_UPDATE_ATIME);
+
+    // Insert the file into the double-linked FILO list of open files
+    if (file->vd->firstOpenFile) {
+        file->nextOpenFile = file->vd->firstOpenFile;
+        file->vd->firstOpenFile->prevOpenFile = file;
+    } else {
+        file->nextOpenFile = NULL;
+    }
+    file->prevOpenFile = NULL;
+    file->vd->firstOpenFile = file;
+    file->vd->openFileCount++;
+
+    // Sync access time
+    ext2Sync(file->vd, file->ni);
+
+    file->is_ntfs = 0;
+
+    u64 read = 0;
+    err = 0;
+
+    // Read from the files data attribute
+    //err = ext2fs_file_read(file->fd, ptr, len, &read);
+    u64 len = 0;
+
+    ext2fs_file_llseek(file->fd, 0, SEEK_END, (__u64 *) &len);
+
+    // Set the files current position
+	ext2fs_file_llseek(file->fd, 0, SEEK_SET, 0);
+
+    u32 current_block = 0;
+    err = ext2fs_file_read_sectors(file->fd, len, &read, sec_out, size_out, &current_block, max);
+    if (err || read <= 0 || read > len) {
+        ext2Unlock(file->vd);
+        r->_errno = errno;
+        current_block = err ? err : -1;
+        goto end;
+    }
+
+end:
+     // Close the file
+    ext2CloseFile(file);
+
+    // Remove the file from the double-linked FILO list of open files
+    file->vd->openFileCount--;
+    if (file->nextOpenFile)
+        file->nextOpenFile->prevOpenFile = file->prevOpenFile;
+    if (file->prevOpenFile)
+        file->prevOpenFile->nextOpenFile = file->nextOpenFile;
+    else
+        file->vd->firstOpenFile = file->nextOpenFile;
+
+    ext2Unlock(file->vd);
+
+    return current_block;
+}

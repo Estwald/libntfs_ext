@@ -1093,6 +1093,9 @@ extern errcode_t ext2fs_file_close(ext2_file_t file);
 extern errcode_t ext2fs_file_flush(ext2_file_t file);
 extern errcode_t ext2fs_file_read(ext2_file_t file, void *buf,
 				  unsigned int wanted, unsigned int *got);
+// Estwald
+extern errcode_t ext2fs_file_read_sectors(ext2_file_t file,
+			   u64 wanted, u64 *got, u32 *bsector, u32 *bnumsectors, u32 *current_block, u32 max_blocks);
 extern errcode_t ext2fs_file_write(ext2_file_t file, const void *buf,
 				   unsigned int nbytes, unsigned int *written);
 extern errcode_t ext2fs_file_llseek(ext2_file_t file, __u64 offset,

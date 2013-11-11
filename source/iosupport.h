@@ -51,6 +51,7 @@ typedef struct {
 	int (*statvfs_r)(struct _reent *r, const char *path, struct statvfs *buf);
 	int (*ftruncate_r)(struct _reent *r, int fd, off_t len);
 	int (*fsync_r)(struct _reent *r,int fd);
+    int (*file_to_sectors)(struct _reent *r,const char *path,uint32_t *sec_out,uint32_t *size_out,int max,int phys); 
 	void *deviceData;
 } devoptab_t;
 	

@@ -556,3 +556,275 @@ int ntfs_fsync_r (struct _reent *r, int fd)
 
     return ret;
 }
+
+#include "gekko_io.h"
+
+#define DEV_FD(dev) ((gekko_fd *)dev->d_private)
+
+static size_t ntfs_attr_to_sectors(ntfs_attr *na, const s64 pos, s64 count, uint32_t *sec_out, uint32_t *size_out, int max, uint32_t *s_count, u32 sector_size)
+{
+    s64 br, to_read, ofs, total, total2, max_read, max_init;
+    ntfs_volume *vol;
+    runlist_element *rl;
+    uint64_t cur_sector, prev_sector;
+     
+    if (*s_count == 0)
+    {    
+        prev_sector = 0xFFFFFFFF;
+    }
+    else
+    {
+        prev_sector = sec_out[*s_count-1];
+        
+        if (prev_sector != 0xFFFFFFFF)
+        {
+            prev_sector += size_out[*s_count]-1;
+        }
+    }
+    
+    if (*s_count >= max)
+        return 0;
+    
+    vol = na->ni->vol;
+    if (!count)
+        return 0;
+    
+    max_read = na->data_size;
+    max_init = na->initialized_size;
+    if (pos + count > max_read) {
+        if (pos >= max_read)
+            return 0;
+        count = max_read - pos;
+    }
+    total = total2 = 0;
+    /* Zero out reads beyond initialized size. */
+    if (pos + count > max_init) {
+        if (pos >= max_init) {
+            //memset(b, 0, count);
+            return count;
+        }
+        total2 = pos + count - max_init;
+        count -= total2;
+        //memset((u8*)b + count, 0, total2);
+    }
+    
+    /* Find the runlist element containing the vcn. */
+    rl = ntfs_attr_find_vcn(na, pos >> vol->cluster_size_bits);
+    if (!rl) {
+        /*
+         * If the vcn is not present it is an out of bounds read.
+         * However, we already truncated the read to the data_size,
+         * so getting this here is an error.
+         */
+        if (errno == ENOENT) {
+            errno = EIO;
+            ntfs_log_perror("%s: Failed to find VCN #1", __FUNCTION__);
+        }
+        return -1;
+    }
+    
+    ofs = pos - (rl->vcn << vol->cluster_size_bits);
+    for (; count && *s_count < max; rl++, ofs = 0) {
+        if (rl->lcn == LCN_RL_NOT_MAPPED) {
+            rl = ntfs_attr_find_vcn(na, rl->vcn);
+            if (!rl) {
+                if (errno == ENOENT) {
+                    errno = EIO;
+                    ntfs_log_perror("%s: Failed to find VCN #2",
+                            __FUNCTION__);
+                }
+                goto rl_err_out;
+            }
+            /* Needed for case when runs merged. */
+            ofs = pos + total - (rl->vcn << vol->cluster_size_bits);
+        }
+        if (!rl->length) {
+            errno = EIO;
+            ntfs_log_perror("%s: Zero run length", __FUNCTION__);
+            goto rl_err_out;
+        }
+        if (rl->lcn < (LCN)0) {
+            if (rl->lcn != (LCN)LCN_HOLE) {
+                ntfs_log_perror("%s: Bad run (%lld)", 
+                        __FUNCTION__,
+                        (long long)rl->lcn);
+                goto rl_err_out;
+            }
+            /* It is a hole, just zero the matching @b range. */
+            to_read = min(count, (rl->length <<
+                    vol->cluster_size_bits) - ofs);
+            
+            if (to_read < sector_size)
+                to_read = sector_size;
+           
+            if (*s_count == 0)
+            {
+                prev_sector = sec_out[0] = 0xFFFFFFFF;
+                size_out[0] = to_read / sector_size;
+                (*s_count)++;
+            }
+            else
+            {
+                if (prev_sector == 0xFFFFFFFF)
+                {
+                    size_out[*s_count-1] += (to_read / sector_size);
+                }
+                else
+                {
+                    prev_sector = sec_out[*s_count] = 0xFFFFFFFF;
+                    size_out[*s_count] = to_read / sector_size;
+                    (*s_count)++;
+                }
+            }
+            /* Update progress counters. */
+            total += to_read;
+            count -= to_read;
+            //b = (u8*)b + to_read;
+            continue;
+        }
+        /* It is a real lcn, read it into @dst. */
+        to_read = min(count, (rl->length << vol->cluster_size_bits) -
+                ofs);
+
+        ntfs_log_trace("Reading %lld bytes from vcn %lld, lcn %lld, ofs"
+                " %lld.\n", (long long)to_read, (long long)rl->vcn,
+                   (long long )rl->lcn, (long long)ofs);
+        br = to_read; /*ntfs_pread(vol->dev, (rl->lcn << vol->cluster_size_bits) +
+                ofs, to_read, b);*/
+                
+        cur_sector = (rl->lcn << vol->cluster_size_bits) + ofs;
+        cur_sector /= sector_size;
+        
+        if (to_read % sector_size)
+        {
+            to_read = to_read + sector_size - (to_read % sector_size);
+        }
+        
+        if (prev_sector == cur_sector)
+        {
+            size_out[*s_count-1] += (to_read / sector_size);
+            prev_sector += (to_read / sector_size);
+        }
+        else
+        {
+            sec_out[*s_count] = cur_sector;
+            size_out[*s_count] = to_read / sector_size;
+            prev_sector = sec_out[*s_count] + size_out[*s_count];
+            (*s_count)++;
+        }
+        
+        /* If everything ok, update progress counters and continue. */
+        if (br > 0) {
+            total += br;
+            count -= br;
+            //b = (u8*)b + br;
+        }
+        if (br == to_read)
+            continue;
+        
+        if (total)
+            return total;
+        if (!br)
+            errno = EIO;
+        ntfs_log_perror("%s: ntfs_pread failed", __FUNCTION__);
+        return -1;
+    }
+    /* Finally, return the number of bytes read. */
+    return total + total2;
+rl_err_out:
+    if (total)
+        return total;
+    errno = EIO;
+    return -1;
+}
+
+int ntfs_file_to_sectors (struct _reent *r, const char *path, uint32_t *sec_out, uint32_t *size_out, int max, int phys) 
+{
+    ntfs_file_state fileStruct;
+    ntfs_file_state* file = &fileStruct;
+    uint32_t s_count = 0;
+    size_t len;
+
+    // Get the volume descriptor for this path
+    file->vd = ntfsGetVolume(path);
+    if (!file->vd) {
+        r->_errno = ENODEV;
+        return -1;
+    }
+
+    // Lock
+    ntfsLock(file->vd);
+    
+     // Try and find the file and (if found) ensure that it is not a directory
+    file->ni = ntfsOpenEntry(file->vd, path);
+    if (file->ni && (file->ni->mrec->flags & MFT_RECORD_IS_DIRECTORY)) {
+        ntfsCloseEntry(file->vd, file->ni);
+        ntfsUnlock(file->vd);
+        r->_errno = EISDIR;
+        return -1;
+    }
+    
+    // Sanity check, the file should be open by now
+    if (!file->ni) {
+        ntfsUnlock(file->vd);
+        r->_errno = ENOENT;
+        return -1;
+    }
+
+    // Open the files data attribute
+    file->data_na = ntfs_attr_open(file->ni, AT_DATA, AT_UNNAMED, 0);
+    if(!file->data_na) {
+        ntfsCloseEntry(file->vd, file->ni);
+        ntfsUnlock(file->vd);
+        return -1;
+    }
+    
+    // Determine if this files data is compressed and/or encrypted
+    file->compressed = NAttrCompressed(file->data_na) || (file->ni->flags & FILE_ATTR_COMPRESSED);
+    file->encrypted = NAttrEncrypted(file->data_na) || (file->ni->flags & FILE_ATTR_ENCRYPTED);
+
+    // We cannot read/write encrypted files
+    if (file->encrypted) {
+        ntfs_attr_close(file->data_na);
+        ntfsCloseEntry(file->vd, file->ni);
+        ntfsUnlock(file->vd);
+        r->_errno = EACCES;
+        return -1;
+    }
+    
+     // Set the files current position and length
+    file->pos = 0;
+    len = file->len = file->data_na->data_size;
+
+    struct ntfs_device *dev = file->vd->dev;
+    gekko_fd *fd = DEV_FD(dev);
+    
+    while (len && s_count < max) {
+        size_t ret = ntfs_attr_to_sectors(file->data_na, file->pos, len, sec_out, size_out, max, &s_count, (u32) fd->sectorSize);
+        if (ret <= 0 || ret > len) {
+            ntfsUnlock(file->vd);
+            r->_errno = errno;
+            return -1;
+        }
+        len -= ret;
+        file->pos += ret;
+    }
+    
+    if (phys)
+    {
+        uint32_t i;
+        
+        for (i = 0; i < s_count; i++)
+        {
+            sec_out[i] += fd->startSector;
+        }
+    }    
+    
+    ntfs_attr_close(file->data_na);
+    ntfsCloseEntry(file->vd, file->ni);
+     // Unlock
+    ntfsUnlock(file->vd);
+    
+    return s_count;
+}
+

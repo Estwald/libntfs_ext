@@ -176,6 +176,7 @@ static errcode_t sync_buffer_position(ext2_file_t file)
  * going to be replacing its entire contents anyway.  If set, then the
  * function basically only sets file->physblock and EXT2_FILE_BUF_VALID
  */
+
 #define DONTFILL 1
 static errcode_t load_buffer(ext2_file_t file, int dontfill)
 {
@@ -197,6 +198,34 @@ static errcode_t load_buffer(ext2_file_t file, int dontfill)
 					return retval;
 			} else
 				memset(file->buf, 0, fs->blocksize);
+		}
+		file->flags |= EXT2_FILE_BUF_VALID;
+	}
+	return 0;
+}
+
+// Estwald
+errcode_t device_gekko_io_getsectors(io_channel dev, unsigned long long block, int count, u32 *bsector, u32 *bnumsectors, u32 *current_block, u32 max_blocks);
+
+static errcode_t load_buffer_sector(ext2_file_t file, int dontfill, u32 *bsector, u32 *bnumsectors, u32 *current_block, u32 max_blocks)
+{
+	ext2_filsys	fs = file->fs;
+	errcode_t	retval;
+
+	if (!(file->flags & EXT2_FILE_BUF_VALID)) {
+		retval = ext2fs_bmap2(fs, file->ino, file->inode,
+				     BMAP_BUFFER, 0, file->blockno, 0,
+				     &file->physblock);
+		if (retval)
+			return retval;
+		if (!dontfill) {
+			if (file->physblock) {
+				retval = device_gekko_io_getsectors(fs->io,
+							     file->physblock,
+							     1, bsector, bnumsectors, current_block, max_blocks);
+				if (retval)
+					return retval;
+			} 
 		}
 		file->flags |= EXT2_FILE_BUF_VALID;
 	}
@@ -261,6 +290,45 @@ fail:
 	return retval;
 }
 
+// Estwald
+errcode_t ext2fs_file_read_sectors(ext2_file_t file,
+			   u64 wanted, u64 *got, u32 *bsector, u32 *bnumsectors, u32 *current_block, u32 max_blocks)
+{
+	ext2_filsys	fs;
+	errcode_t	retval = 0;
+	u32	start;
+    u64 c, count = 0;
+	__u64		left;
+
+	EXT2_CHECK_MAGIC(file, EXT2_ET_MAGIC_EXT2_FILE);
+	fs = file->fs;
+
+	while ((file->pos < EXT2_I_SIZE(file->inode)) && (wanted > 0)) {
+		retval = sync_buffer_position(file);
+		if (retval)
+			goto fail;
+		retval = load_buffer_sector(file, 0, bsector, bnumsectors, current_block, max_blocks);
+		if (retval)
+			goto fail;
+
+		start = file->pos % fs->blocksize;
+		c = (u64) (fs->blocksize - start);
+		if (c > wanted)
+			c = wanted;
+		left = EXT2_I_SIZE(file->inode) - file->pos ;
+		if (c > left)
+			c = left;
+
+		file->pos += c;
+		count += c;
+		wanted -= c;
+	}
+
+fail:
+	if (got)
+		*got = count;
+	return retval;
+}
 
 errcode_t ext2fs_file_write(ext2_file_t file, const void *buf,
 			    unsigned int nbytes, unsigned int *written)
